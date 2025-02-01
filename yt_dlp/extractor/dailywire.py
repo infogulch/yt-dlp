@@ -1,5 +1,6 @@
 import itertools
 import json
+import time
 
 from .common import InfoExtractor
 from ..utils import (
@@ -7,6 +8,7 @@ from ..utils import (
     determine_ext,
     float_or_none,
     join_nonempty,
+    jwt_decode_hs256,
     parse_iso8601,
     traverse_obj,
     url_or_none,
@@ -14,6 +16,7 @@ from ..utils import (
 
 
 class DailyWireBaseIE(InfoExtractor):
+    _NETRC_MACHINE = 'dailywire'
     _GRAPHQL_API = 'https://v2server.dailywire.com/app/graphql'
     _GRAPHQL_QUERIES = {
         'getClipBySlug': 'query getClipBySlug($slug:String!){clip(where:{slug:$slug}){id,name,slug,description,image,show{id,name,slug},thumbnail,duration,createdBy{firstName,lastName},createdAt,videoURL}}',
@@ -43,9 +46,30 @@ class DailyWireBaseIE(InfoExtractor):
         'Referer': 'https://www.dailywire.com/',
     }
 
+    def _perform_login(self, username, password):
+        if 'Authorization' in self._API_HEADERS:
+            return
+        if username != 'access_token':
+            raise ExtractorError(
+                'Login using username and password is not currently supported. '
+                'Use "--username access_token --password <access_token>" to login using an access token. '
+                'To get your access_token: login to the website, go to Developer Tools > Storage tab > Local Storage > https://www.dailywire.com > find the Key named access_token > copy the corresponding Value', expected=True)
+        try:
+            # validate the token
+            jwt = jwt_decode_hs256(password)
+            if time.time() >= jwt['exp']:
+                raise ValueError('jwt expired')
+            self._API_HEADERS['Authorization'] = f'Bearer {password}'
+            self.report_login()
+        except ValueError as e:
+            self.report_warning(f'Provided authorization token is invalid ({e!s}). Continuing as guest')
+
     def _real_initialize(self):
+        if 'Authorization' in self._API_HEADERS:
+            return
         if access_token := self._get_cookies('https://www.dailywire.com').get('accessToken'):
             self._API_HEADERS['Authorization'] = f'Bearer {access_token.value}'
+            self.report_login()
 
     def _call_api(self, slug, query, variables, message='Downloading JSON from GraphQL API'):
         json_data = self._download_json(
@@ -187,12 +211,12 @@ class DailyWirePodcastIE(DailyWireBaseIE):
             'display_id': 'get-ready-for-recession-6-15-22',
             'title': 'Get Ready for Recession | 6.15.22',
             'description': 'md5:c4afbadda4e1c38a4496f6d62be55634',
-            'thumbnail': 'https://daily-wire-production.imgix.net/podcasts/ckx4otgd71jm508699tzb6hf4-1667859984424.jpg',
-            'duration': 900.117667,
+            'thumbnail': 'https://daily-wire-production.imgix.net/podcasts/ckx4otgd71jm508699tzb6hf4-1717620528520.png',
+            'duration': 842.073667,
             'timestamp': 1655261631,
             'season_id': 'morning-wire-morning-wire-podcast-season',
             'series_id': 'morning-wire',
-            'creators': ['Georgia Howe'],
+            'creators': ['Morning Wire'],
             'season': '2022',
             'series': 'Morning Wire',
             'upload_date': '20220615',
